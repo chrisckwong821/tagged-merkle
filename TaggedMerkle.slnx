@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/src/"><Project Path="src/TaggedMerkle/TaggedMerkle.csproj" /></Folder>
+  <Folder Name="/tests/"><Project Path="tests/TaggedMerkle.Tests/TaggedMerkle.Tests.csproj" /></Folder>
+  <Folder Name="/benchmarks/"><Project Path="benchmarks/TaggedMerkle.Benchmarks/TaggedMerkle.Benchmarks.csproj" /></Folder>
+</Solution>

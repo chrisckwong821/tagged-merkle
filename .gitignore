@@ -1,0 +1,21 @@
+**/bin/
+**/obj/
+.vs/
+.idea/
+.DS_Store
+TestResults/
+
+# Per-user Visual Studio settings
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Generated packages and artifacts
+artifacts/
+*.nupkg
+*.snupkg
+
+# Generated coverage results
+*.coverage
+*.coveragexml

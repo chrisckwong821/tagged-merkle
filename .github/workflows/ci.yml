@@ -26,5 +26,5 @@ jobs:
       - name: Build in Release mode
         run: dotnet build -c Release
 
-      - name: Run all 31 verification checks
+      - name: Run verification checks
         run: dotnet run --project tests/TaggedMerkle.Tests -c Release --no-build

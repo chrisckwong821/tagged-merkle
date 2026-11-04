@@ -333,27 +333,30 @@ Enumerable.Repeat("transaction", 100_001).ToArray()
 | Time | `O(B + n + t)` for encoding, tag hashing, and tree reduction |
 | Additional working memory | `O(n + t)`, excluding caller-owned input strings |
 | Main hash buffer | `32 × n` bytes: about `3.05 MiB` for 100,000 leaves |
-| Encoding scratch space | `4 KiB`, reused for each string |
+| Encoding scratch space | `4 KiB` and one UTF-8 encoder, created once per call and reused for each string |
 | Branch scratch space | `128 bytes`, reused for each parent |
 
 - **CPU-bound:** the calculation does no file or network I/O; its work is encoding and SHA-256 hashing.
-- **Memory costs:** large inputs also incur allocation, garbage-collection, and memory-bandwidth costs; each leaf creates an encoder object.
-- **Design:** the function leaves inputs unchanged, while local mutation reuses child-hash storage for parents and computes the tag prefix once per call.
+- **Memory costs:** large inputs also incur allocation, garbage-collection, and memory-bandwidth costs; per-leaf allocation is limited to the 32-byte digest slot.
+- **Design:** the function leaves inputs unchanged, while local mutation reuses child-hash storage for parents and computes each tag prefix once per call (once in total when leaf and branch tags match).
+- **Shared code path:** `ComputeRoot` and `CreateSnapshot` use the same leaf-hashing and level-reduction helpers, so both apply the duplicate-last rule identically.
 - **Scaling:** limit input sizes and simultaneous calls to available memory and CPU; async wrappers alone will not speed up this calculation.
 
 ### Basic local benchmark
 
-- **Environment:** Apple M4 Max, 64 GiB RAM, macOS 15.3.2, ARM64, .NET 10.0.14, Release build; measured on 2026-11-03.
+- **Environment:** Apple M4 Max, 64 GiB RAM, macOS 15.3.2, ARM64, .NET 10.0.14, Release build; measured on 2026-11-04.
 - **Method:** sequential calls with `Bitcoin_Transaction`, three warmups and seven measured calls per workload; inputs are unique ASCII strings of the stated UTF-8 length.
 - **Timing:** input creation and console output are excluded; garbage collection is forced before each sample, outside the timer.
 
 | Strings | Bytes per string | Median per root | Min–max | Payload MiB/s | Managed MiB allocated per root |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1,000 | 32 | 0.43 ms | 0.42–0.45 ms | 70.41 | 0.08 |
-| 100,000 | 32 | 32.87 ms | 32.01–35.97 ms | 92.85 | 7.63 |
-| 1,000,000 | 32 | 321.76 ms | 316.42–327.66 ms | 94.84 | 76.29 |
-| 100,000 | 20 | 31.85 ms | 31.57–32.97 ms | 59.89 | 7.63 |
-| 1,000 | 4,096 | 1.61 ms | 1.59–1.67 ms | 2432.74 | 0.08 |
+| 1,000 | 32 | 0.30 ms | 0.30–0.30 ms | 102.41 | 0.03 |
+| 100,000 | 32 | 28.35 ms | 25.12–28.66 ms | 107.64 | 3.05 |
+| 1,000,000 | 32 | 248.85 ms | 246.24–252.19 ms | 122.64 | 30.52 |
+| 100,000 | 20 | 25.20 ms | 24.90–25.44 ms | 75.69 | 3.05 |
+| 1,000 | 4,096 | 1.52 ms | 1.51–1.65 ms | 2565.85 | 0.03 |
+
+- **Change from the previous release:** reusing one encoder and encoding buffer per call, instead of creating them for every leaf, cut managed allocation by 60% (about 48 bytes per leaf) and median time by about 23% for 1,000,000 × 32-byte and 100,000 × 20-byte inputs, 13% for 100,000 × 32-byte inputs, and 6% for 4,096-byte strings. The remaining allocation is the `32 × n` hash buffer. Before and after were measured in alternating runs on the same machine.
 
 - **Throughput:** `Payload MiB/s` means input bytes divided by root-calculation time, including tree work; it is not a disk/network rate.
 - **Allocations:** cumulative managed allocations include the hash buffer and temporary objects, but exclude input creation; they are not peak memory, stack/native memory, or process RAM usage.
@@ -382,6 +385,27 @@ dotnet run --project benchmarks/TaggedMerkle.Benchmarks -c Release
 
 - [BIP340 tagged hashing](https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki)
 - [Bitcoin Core Merkle algorithm](https://github.com/bitcoin/bitcoin/blob/master/src/consensus/merkle.cpp)
+
+## Merkle proofs (`v0.1.0`)
+
+- `ComputeRoot(values, leafTag, branchTag)` supports separate tags; the existing two-argument overload is unchanged.
+- `CreateSnapshot(values, leafTag, branchTag)` retains tree levels for repeated proof queries without rebuilding the tree.
+
+```csharp
+var tree = MerkleTree.CreateSnapshot(
+    ["(1,1111)", "(2,2222)"],
+    "ProofOfReserve_Leaf",
+    "ProofOfReserve_Branch");
+
+string root = tree.RootHex;
+IReadOnlyList<MerkleProofNode> proof = tree.GetProof(0);
+// Each node has a lowercase hex Hash and Position: 0 = left sibling, 1 = right sibling.
+// Nodes run from the leaf toward the root. A singleton has an empty proof.
+```
+
+- Snapshots preserve input order and are safe for concurrent reads; each proof returns immutable nodes in a read-only list.
+- Building a snapshot takes `O(B + n + t)` time and retains `O(n)` digest storage; a proof costs `O(log n)` time and output space.
+- Eight additional checks in `ProofTests.cs` cover the eight-user known root, all leaf proofs across tree shapes, validation, tampering, and concurrent reads; the suite now runs **39 checks**.
 
 ## Release
 

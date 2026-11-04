@@ -297,6 +297,8 @@ tests.Add(("Tag selection", "Empty-tree sentinel is independent of a valid tag",
 }
 ));
 
+tests.AddRange(ProofTests.Cases());
+
 // Run every registered test and report failures without stopping the suite.
 int failures = 0;
 int number = 0;
